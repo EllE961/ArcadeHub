@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<Settings xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <Speed>10</Speed>
+  <Size>20</Size>
+  <Direction>Right</Direction>
+  <ScoreIncrement>10</ScoreIncrement>
+</Settings>
