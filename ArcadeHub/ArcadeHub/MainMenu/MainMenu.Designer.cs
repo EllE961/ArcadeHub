@@ -1,4 +1,9 @@
-// MainMenuForm.Designer.cs
+﻿//  ████████      ██          ██          ████████ 
+//  ██            ██          ██          ██       
+//  ██  ████      ██          ██          ██  ████
+//  ██            ██          ██          ██       
+//  ████████      ████████    ████████    ████████ 
+
 using System.Windows.Forms;
 
 namespace ArcadeHub.MainMenu

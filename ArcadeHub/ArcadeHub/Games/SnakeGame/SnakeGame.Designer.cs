@@ -1,4 +1,9 @@
-// SnakeGame.Designer.cs
+﻿//  ████████      ██          ██          ████████ 
+//  ██            ██          ██          ██       
+//  ██  ████      ██          ██          ██  ████
+//  ██            ██          ██          ██       
+//  ████████      ████████    ████████    ████████ 
+
 using System.Windows.Forms;
 
 namespace ArcadeHub.Games.SnakeGame

@@ -1,8 +1,14 @@
-// SnakeGame.cs
+﻿//  ████████      ██          ██          ████████ 
+//  ██            ██          ██          ██       
+//  ██  ████      ██          ██          ██  ████
+//  ██            ██          ██          ██       
+//  ████████      ████████    ████████    ████████ 
+
 using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Windows.Forms;
 using NAudio.Wave;
 using ArcadeHub.Models;
@@ -24,7 +30,10 @@ namespace ArcadeHub.Games.SnakeGame
         private WaveOutEvent gameOverPlayer;
         private AudioFileReader gameOverReader;
 
-        private Timer gameTimer; // Declared at class level
+        private Timer gameTimer; // Game loop timer
+        private Timer wallSpawnTimer; // Wall spawning timer
+        private Timer foodRespawnTimer; // Food respawn timer
+
         private Settings settings;
         private HighScores highScores;
         private bool gameStarted = false;
@@ -35,11 +44,23 @@ namespace ArcadeHub.Games.SnakeGame
         // Direction input queue
         private Queue<Direction> directionQueue = new Queue<Direction>();
 
+        // Walls
+        private List<Wall> Walls = new List<Wall>();
+        private const int WallSpawnInterval = 7000; // Spawn a wall every 7 seconds
+        private const int WallFlashDuration = 30; // Wall flashes for 30 game ticks
+
+        // Food Timer
+        private const int FoodMaxTime = 100; // Total game ticks before food expires
+        private int foodTimer = FoodMaxTime;
+        private bool isFoodActive = true;
+
         public SnakeGame()
         {
             InitializeComponent(); // Initialize form components first
             InitializeSound();     // Initialize sound components
-            InitializeGame();      // Then initialize game-specific components
+            InitializeGame();      // Initialize game-specific components
+            InitializeWallSpawnTimer(); // Initialize wall spawn timer
+            InitializeFoodRespawnTimer(); // Initialize food respawn timer
         }
 
         private void InitializeSound()
@@ -88,7 +109,7 @@ namespace ArcadeHub.Games.SnakeGame
                 settings = Settings.Load();
                 highScores = new HighScores();
 
-                // Initialize the Timer
+                // Initialize the Game Timer
                 gameTimer = new Timer();
                 if (gameTimer == null)
                 {
@@ -107,6 +128,36 @@ namespace ArcadeHub.Games.SnakeGame
             catch (Exception ex)
             {
                 MessageBox.Show($"An error occurred during game initialization: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void InitializeWallSpawnTimer()
+        {
+            try
+            {
+                wallSpawnTimer = new Timer();
+                wallSpawnTimer.Interval = WallSpawnInterval; // Set interval for wall spawning
+                wallSpawnTimer.Tick += WallSpawnTimer_Tick;
+                wallSpawnTimer.Start();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"An error occurred while initializing wall spawn timer: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void InitializeFoodRespawnTimer()
+        {
+            try
+            {
+                foodRespawnTimer = new Timer();
+                foodRespawnTimer.Interval = 2000; // 2 seconds delay
+                foodRespawnTimer.Tick += FoodRespawnTimer_Tick;
+                foodRespawnTimer.Stop(); // Initially stopped
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"An error occurred while initializing food respawn timer: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -135,7 +186,7 @@ namespace ArcadeHub.Games.SnakeGame
                 }
                 else
                 {
-                    // Ensure the timer is not running initially
+                    // Ensure the game timer is not running initially
                     gameTimer?.Stop();
                 }
 
@@ -144,6 +195,16 @@ namespace ArcadeHub.Games.SnakeGame
 
                 // Clear any pending direction changes
                 directionQueue.Clear();
+
+                // Clear existing walls
+                Walls.Clear();
+
+                // Reset food timer
+                foodTimer = FoodMaxTime;
+                isFoodActive = true;
+
+                // Stop any ongoing food respawn
+                foodRespawnTimer?.Stop();
             }
             catch (Exception ex)
             {
@@ -176,14 +237,28 @@ namespace ArcadeHub.Games.SnakeGame
                         }
                     }
 
-                    // Additional check to prevent overlapping after growth
-                    if (validPosition && Snake.Count > 0)
+                    // Ensure food is not spawned on any existing walls
+                    if (validPosition)
                     {
-                        // Prevent immediate collision after eating
-                        if (Snake[0].X == food.X && Snake[0].Y == food.Y)
-                            validPosition = false;
+                        foreach (var wall in Walls)
+                        {
+                            foreach (var block in wall.Blocks)
+                            {
+                                if (block.X == food.X && block.Y == food.Y)
+                                {
+                                    validPosition = false;
+                                    break;
+                                }
+                            }
+                            if (!validPosition)
+                                break;
+                        }
                     }
                 }
+
+                // Reset food timer
+                foodTimer = FoodMaxTime;
+                isFoodActive = true;
             }
             catch (Exception ex)
             {
@@ -227,6 +302,8 @@ namespace ArcadeHub.Games.SnakeGame
                 }
 
                 MoveSnake();
+                UpdateWalls();
+                UpdateFoodTimer();
                 CheckCollision();
                 gamePanel.Invalidate(); // Triggers the gamePanel's Paint event
             }
@@ -294,7 +371,7 @@ namespace ArcadeHub.Games.SnakeGame
                 }
 
                 // Check if snake has eaten the food
-                if (Snake[0].X == food.X && Snake[0].Y == food.Y)
+                if (Snake[0].X == food.X && Snake[0].Y == food.Y && isFoodActive)
                 {
                     Eat();
                 }
@@ -309,7 +386,14 @@ namespace ArcadeHub.Games.SnakeGame
         {
             try
             {
-                score += settings.ScoreIncrement;
+                // Calculate remaining time percentage
+                float remainingTimePercentage = (float)foodTimer / FoodMaxTime;
+                remainingTimePercentage = Math.Max(0, Math.Min(1, remainingTimePercentage)); // Clamp between 0 and 1
+
+                // Calculate score increment based on remaining time
+                int scoreIncrement = (int)(remainingTimePercentage * 10);
+                score += scoreIncrement;
+
                 PlayEatSound(); // Play eating sound asynchronously
 
                 // Add new segment at the tail's previous position
@@ -320,8 +404,9 @@ namespace ArcadeHub.Games.SnakeGame
                 };
                 Snake.Add(newCircle);
 
-                GenerateFood();
-                gameTimer.Interval = 1000 / settings.Speed; // Adjust speed if necessary
+                // Remove the current food and start respawn timer
+                isFoodActive = false;
+                foodRespawnTimer?.Start();
             }
             catch (Exception ex)
             {
@@ -376,15 +461,21 @@ namespace ArcadeHub.Games.SnakeGame
                     }
                 }
 
-                // Optional: Check collision with walls if not wrapping around
-                /*
-                if (Snake[0].X < 0 || Snake[0].Y < 0 ||
-                    Snake[0].X >= gamePanel.Width / settings.Size ||
-                    Snake[0].Y >= gamePanel.Height / settings.Size)
+                // Check collision with walls
+                foreach (var wall in Walls)
                 {
-                    GameOver();
+                    if (wall.State == WallState.Solid)
+                    {
+                        foreach (var block in wall.Blocks)
+                        {
+                            if (Snake[0].X == block.X && Snake[0].Y == block.Y)
+                            {
+                                GameOver();
+                                break;
+                            }
+                        }
+                    }
                 }
-                */
             }
             catch (Exception ex)
             {
@@ -397,6 +488,7 @@ namespace ArcadeHub.Games.SnakeGame
             try
             {
                 gameTimer?.Stop();
+                wallSpawnTimer?.Stop();
                 backgroundPlayer?.Stop();
                 gameOverPlayer?.Play();
                 highScores.AddScore(score);
@@ -514,12 +606,14 @@ namespace ArcadeHub.Games.SnakeGame
                 if (gameTimer.Enabled)
                 {
                     gameTimer.Stop();
+                    wallSpawnTimer?.Stop();
                     backgroundPlayer?.Pause();
                     isPaused = true;
                 }
                 else
                 {
                     gameTimer.Start();
+                    wallSpawnTimer?.Start();
                     backgroundPlayer?.Play();
                     isPaused = false;
                 }
@@ -538,17 +632,58 @@ namespace ArcadeHub.Games.SnakeGame
             {
                 Graphics canvas = e.Graphics;
 
+                // Draw walls
+                foreach (var wall in Walls)
+                {
+                    using (Brush wallBrush = new SolidBrush(wall.WallColor))
+                    {
+                        foreach (var block in wall.Blocks)
+                        {
+                            Rectangle wallBlock = new Rectangle(
+                                block.X * settings.Size,
+                                block.Y * settings.Size,
+                                settings.Size,
+                                settings.Size);
+                            canvas.FillRectangle(wallBrush, wallBlock);
+                        }
+                    }
+                }
+
                 // Draw snake
                 for (int i = 0; i < Snake.Count; i++)
                 {
                     if (i == 0)
-                        canvas.FillEllipse(Brushes.Black, new Rectangle(Snake[i].X * settings.Size, Snake[i].Y * settings.Size, settings.Size, settings.Size)); // Head
+                        canvas.FillEllipse(Brushes.DarkGreen, new Rectangle(Snake[i].X * settings.Size, Snake[i].Y * settings.Size, settings.Size, settings.Size)); // Head
                     else
                         canvas.FillEllipse(Brushes.Green, new Rectangle(Snake[i].X * settings.Size, Snake[i].Y * settings.Size, settings.Size, settings.Size)); // Body
                 }
 
-                // Draw food
-                canvas.FillEllipse(Brushes.Red, new Rectangle(food.X * settings.Size, food.Y * settings.Size, settings.Size, settings.Size));
+                // Draw food with timer bar
+                if (isFoodActive)
+                {
+                    // Calculate remaining time percentage
+                    float remainingTimePercentage = (float)foodTimer / FoodMaxTime;
+                    remainingTimePercentage = Math.Max(0, Math.Min(1, remainingTimePercentage)); // Clamp between 0 and 1
+
+                    // Calculate color based on remaining time (from green to transparent)
+                    int alpha = (int)(remainingTimePercentage * 255);
+                    Color foodColor = Color.FromArgb(alpha, Color.Red);
+
+                    // Draw food
+                    canvas.FillEllipse(new SolidBrush(foodColor), new Rectangle(food.X * settings.Size, food.Y * settings.Size, settings.Size, settings.Size));
+
+                    // Draw timer bar below the food
+                    int barWidth = settings.Size;
+                    int barHeight = 5;
+                    int barX = food.X * settings.Size;
+                    int barY = food.Y * settings.Size + settings.Size + 2;
+
+                    // Background of the timer bar
+                    canvas.FillRectangle(Brushes.Gray, new Rectangle(barX, barY, barWidth, barHeight));
+
+                    // Foreground representing remaining time
+                    canvas.FillRectangle(Brushes.Lime, new Rectangle(barX, barY, (int)(barWidth * remainingTimePercentage), barHeight));
+                }
 
                 // Draw score
                 using (Font font = new Font("Arial", 16))
@@ -572,11 +707,175 @@ namespace ArcadeHub.Games.SnakeGame
             }
         }
 
+        private void UpdateWalls()
+        {
+            try
+            {
+                foreach (var wall in Walls.ToList()) // ToList() to avoid modification during iteration
+                {
+                    if (wall.State == WallState.Flashing)
+                    {
+                        wall.FlashCounter--;
+
+                        if (wall.FlashCounter <= 0)
+                        {
+                            wall.State = WallState.Solid;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"An error occurred while updating walls: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void WallSpawnTimer_Tick(object sender, EventArgs e)
+        {
+            try
+            {
+                SpawnWall();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"An error occurred while spawning a wall: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void SpawnWall()
+        {
+            try
+            {
+                int wallBlockCount = rand.Next(3, 9); // Random number of blocks between 3 and 8
+
+                List<Point> wallBlocks = new List<Point>();
+
+                // Random starting position
+                int startX = rand.Next(0, gamePanel.Width / settings.Size);
+                int startY = rand.Next(0, gamePanel.Height / settings.Size);
+
+                wallBlocks.Add(new Point(startX, startY));
+
+                // Generate connected blocks
+                for (int i = 1; i < wallBlockCount; i++)
+                {
+                    Point lastBlock = wallBlocks[wallBlocks.Count - 1];
+                    List<Point> possibleNextBlocks = new List<Point>
+                    {
+                        new Point(lastBlock.X + 1, lastBlock.Y), // Right
+                        new Point(lastBlock.X - 1, lastBlock.Y), // Left
+                        new Point(lastBlock.X, lastBlock.Y + 1), // Down
+                        new Point(lastBlock.X, lastBlock.Y - 1)  // Up
+                    };
+
+                    // Remove blocks that are out of bounds
+                    possibleNextBlocks = possibleNextBlocks.Where(p =>
+                        p.X >= 0 && p.X < gamePanel.Width / settings.Size &&
+                        p.Y >= 0 && p.Y < gamePanel.Height / settings.Size).ToList();
+
+                    // Remove blocks that already exist in the wall
+                    possibleNextBlocks = possibleNextBlocks.Where(p => !wallBlocks.Contains(p)).ToList();
+
+                    if (possibleNextBlocks.Count == 0)
+                        break; // Cannot extend further
+
+                    // Choose a random next block
+                    Point nextBlock = possibleNextBlocks[rand.Next(possibleNextBlocks.Count)];
+                    wallBlocks.Add(nextBlock);
+                }
+
+                // Check for overlap with snake
+                bool overlapsSnake = false;
+                foreach (var block in wallBlocks)
+                {
+                    foreach (var segment in Snake)
+                    {
+                        if (segment.X == block.X && segment.Y == block.Y)
+                        {
+                            overlapsSnake = true;
+                            break;
+                        }
+                    }
+                    if (overlapsSnake)
+                        break;
+                }
+
+                if (overlapsSnake)
+                    return; // Abort spawning if overlaps with snake
+
+                // Check for overlap with food
+                foreach (var block in wallBlocks)
+                {
+                    if (block.X == food.X && block.Y == food.Y)
+                    {
+                        return; // Abort spawning if overlaps with food
+                    }
+                }
+
+                // Check for overlap with existing walls
+                foreach (var existingWall in Walls)
+                {
+                    foreach (var block in wallBlocks)
+                    {
+                        if (existingWall.Blocks.Contains(block))
+                        {
+                            return; // Abort spawning if overlaps with existing wall
+                        }
+                    }
+                }
+
+                // All checks passed, spawn the wall
+                Wall newWall = new Wall(wallBlocks, WallFlashDuration);
+                Walls.Add(newWall);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"An error occurred while spawning a wall: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void UpdateFoodTimer()
+        {
+            try
+            {
+                if (isFoodActive)
+                {
+                    foodTimer--;
+
+                    if (foodTimer <= 0)
+                    {
+                        // Food expired
+                        isFoodActive = false;
+                        foodRespawnTimer?.Start();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"An error occurred while updating food timer: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void FoodRespawnTimer_Tick(object sender, EventArgs e)
+        {
+            try
+            {
+                foodRespawnTimer?.Stop();
+                GenerateFood();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"An error occurred during food respawn: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             try
             {
                 gameTimer?.Stop();
+                wallSpawnTimer?.Stop();
+                foodRespawnTimer?.Stop();
                 backgroundPlayer?.Stop();
                 gameOverPlayer?.Stop();
 
