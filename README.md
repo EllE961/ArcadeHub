@@ -8,11 +8,13 @@
 ![winforms](https://img.shields.io/badge/windows%20forms-GDI%2B-d95926?style=flat-square&labelColor=0d0c0b)
 ![naudio](https://img.shields.io/badge/NAudio-2.2.1-9085e9?style=flat-square&labelColor=0d0c0b)
 ![license](https://img.shields.io/badge/license-MIT-1f1d1b?style=flat-square&labelColor=0d0c0b)
+![status](https://img.shields.io/badge/status-experimental-9085e9?style=flat-square&labelColor=0d0c0b)
 
 <img src="docs/assets/snake.gif" alt="Snake running in ArcadeHub for 300 ticks: the snake grows from 1 to 11 segments while new walls flash yellow and then turn solid grey" width="100%">
 
 </div>
 
+This is an experiment and isn't finished: only one of the three games exists, and the engine code still lives inside the Snake game (see Limitations).
 The idea was a game engine with no engine underneath: no Unity or MonoGame, only a WinForms timer for the loop, a
 panel's Paint event for rendering, key events for input and NAudio for sound. The launcher lists Snake, Tetris and
 Pong. Snake is complete; Tetris and Pong are placeholders.
